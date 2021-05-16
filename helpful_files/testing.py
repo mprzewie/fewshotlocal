@@ -6,9 +6,10 @@ from IPython import display
 from copy import deepcopy
 from PIL import Image
 from torch.utils.data import Sampler
-from helpful_files.networks import fbpredict, predict
-
-
+import os
+from helpful_files.networks import PROTO, avgpool, covapool, pL, pCL, fsL, fsCL, fbpredict, predict
+from helpful_files.testing import *
+from tqdm import tqdm
 
 def load_transform(path, boxdict, transform, masking):
     # Load the image
@@ -80,7 +81,7 @@ def accumulateFB(models, loader, way, network_width, ngiven, bsize):
     esize = len(models)
     fbcentroids = torch.zeros(esize, network_width, 2).cuda()
     progress = torch.zeros(1, way)
-    for i, ((inp, mask), cat) in enumerate(loader):
+    for i, ((inp, mask), cat) in tqdm(enumerate(loader), "accumulateFB"):
         catindex = cat[0]
 
         # Moving to another category
@@ -127,7 +128,7 @@ def accumulate(models, loader, expanders, bcentroids, way, d):
     running = torch.zeros(esize, d).cuda()
     counts = [0]*way
     progress = torch.zeros(1, way)
-    for i, ((inp,_), cat) in enumerate(loader):
+    for i, ((inp,_), cat) in tqdm(enumerate(loader), "accumulate"):
         catindex = cat[0]
 
         # Moving to another category
@@ -178,7 +179,7 @@ def score(k, centroids, bcentroids, models, loader, expanders, way):
     count = 0
     allcount = 0
     progress = torch.zeros(1, way)
-    for i, ((inp,_), cat) in enumerate(loader):
+    for i, ((inp,_), cat) in tqdm(enumerate(loader), "score"):
         catindex = cat[0]
         if catindex != lastcat: # We're about to move to another category
             # Write the values

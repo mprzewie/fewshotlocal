@@ -16,6 +16,95 @@ import json
 from helpful_files.networks import Network
 from helpful_files.training import *
 from tqdm import tqdm
+from datetime import datetime
+import sys
+
+parser.add_argument(
+    "--n_epochs_in_lr_cut",
+    type=int,
+    default=10,
+    help="Number of passes over the dataset before the learning rate is cut"
+)
+
+parser.add_argument(
+    "--n_cuts",
+    type=int,
+    default=5,
+    help="Number of times to cut the learning rate before training completes"
+)
+
+
+parser.add_argument(
+    "--n_ensembles",
+    type=int,
+    default=4,
+    help="How many models to train in parallel"
+)
+
+parser.add_argument(
+    "--way",
+    type=int,
+    default=20,
+    help="Number of classes per batch during training"
+)
+
+parser.add_argument(
+    "--train_shot",
+    type=int,
+    default=5,
+    help="Number of images per class used to form prototypes"
+)
+
+parser.add_argument(
+    "--test_shot",
+    type=int,
+    default=15,
+    help="Number of images per class used to make predictions"
+)
+
+parser.add_argument(
+    "--bf",
+    action="store_true",
+    default=False,
+    help="Use batch folding? (true in notebook)"
+
+)
+
+parser.add_argument(
+    "--cp",
+    action="store_true",
+    default=False,
+    help="Use covariance pooling? (true in notebook)"
+
+)
+
+
+parser.add_argument(
+    "--localizing",
+    action="store_true",
+    default=False,
+    help="Use localization? (true in NB)"
+)
+
+parser.add_argument(
+    "--fsl",
+    action="store_true",
+    default=False,
+    help="If you are using localization: few-shot, or parametric? Few-shot if True, param if False"
+)
+
+parser.add_argument(
+    "--augflip",
+    action="store_true",
+    default=False,
+    help="Horizontal flip data augmentation (true in NB)"
+)
+parser.add_argument(
+    "--network_width",
+    type=int,
+    default=64,
+    help="Network width"
+)
 
 args = parser.parse_args()
 args_dict = vars(args)
@@ -28,7 +117,7 @@ pprint(args_dict)
 datapath = str(args.data_root / args.dataset)           # The location of your train, test, repr, and query folders. 
 experiment_path = args.results_root / args.dataset / args.experiment_name
 
-savepath = experiment_path / args.weights_file            # Where should your trained model(s) be saved, and under what name?
+savepath = str(experiment_path / args.weights_file)            # Where should your trained model(s) be saved, and under what name?
 gpu = args.gpu_id                            # What gpu do you wish to train on?
 workers = args.dl_workers                         # Number of cpu worker processes to use for data loading
 epoch = args.n_epochs_in_lr_cut                          # Number of passes over the dataset before the learning rate is cut
@@ -56,8 +145,6 @@ include_masks = (localizing         # Include or ignore the bounding box annotat
                  and fewshot_local)
 
 experiment_path.mkdir(exist_ok=True, parents=True)
-figs_path = experiment_path / "figures"
-figs_path.mkdir(exist_ok=True)
 dumpable_args = {
             k: v if isinstance(v, (int, str, bool, float)) else str(v)
             for (k, v) in args_dict.items()
@@ -68,6 +155,13 @@ with (experiment_path / "args.json").open("w") as f:
         f,
         indent=2,
     )
+
+
+with (experiment_path / "rerun.sh").open("w") as f:
+    print("#", datetime.now(), file=f)
+    print("python", *sys.argv, file=f)
+
+
 
 
 d_boxes = torch.load(join(datapath,'box_coords.pth'))
@@ -137,7 +231,7 @@ for e in tqdm(range(epochs)):
         pl.plot(acctracker[i])
         pl.ylim((0,1))
         pl.title(f"E {i}: Training Acc")
-    pl.savefig(figs_path / "training.png")
+    pl.savefig(experiment_path / "training.png")
     with (experiment_path / "history.json").open("w") as f:
         json.dump({
             "args": dumpable_args,
@@ -145,7 +239,7 @@ for e in tqdm(range(epochs)):
             "train_acc": acctracker
         }, f)
 
-    torch.save([m.encode.cpu().state_dict() for m in models], savepath)
+    torch.save([m.encode.state_dict() for m in models], savepath)
 
 
     print("Training loss is: "+str(trainloss)+
@@ -153,10 +247,10 @@ for e in tqdm(range(epochs)):
     
         # If using parametric localization, save the extra parameters
     if localizing and not fewshot_local:
-        torch.save([m.postprocess.centroids.cpu() for m in models], 
+        torch.save([m.postprocess.centroids for m in models], 
                 savepath[:savepath.rfind('.')]+'_localizers'+savepath[savepath.rfind('.'):])
     print("Models saved!")
-    
+
     print("Approximately %.2f hours to completion"%(  (time.time()-start)/(e+1)*(epochs-e)/3600  ))
     print()
     

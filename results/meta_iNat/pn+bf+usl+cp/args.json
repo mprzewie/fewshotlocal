@@ -1,0 +1,22 @@
+{
+  "data_root": "/mnt/users/mprzewiezlikowski/local_truten/uj/data/meta_inat",
+  "dataset": "meta_iNat",
+  "results_root": "results",
+  "experiment_name": "pn+bf+usl+cp",
+  "weights_file": "weights.pth",
+  "gpu_id": 0,
+  "dl_workers": 4,
+  "verbosity": 50,
+  "n_epochs_in_lr_cut": 10,
+  "n_cuts": 5,
+  "n_ensembles": 4,
+  "way": 20,
+  "train_shot": 5,
+  "test_shot": 15,
+  "bf": true,
+  "cp": true,
+  "localizing": true,
+  "fsl": false,
+  "augflip": true,
+  "network_width": 64
+}

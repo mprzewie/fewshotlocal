@@ -56,94 +56,10 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--n_epochs_in_lr_cut",
-    type=int,
-    default=10,
-    help="Number of passes over the dataset before the learning rate is cut"
-)
-
-parser.add_argument(
-    "--n_cuts",
-    type=int,
-    default=5,
-    help="Number of times to cut the learning rate before training completes"
-)
-
-parser.add_argument(
     "--verbosity",
     type=int,
     default=50,
     help="How many batches in between status updates"
 )
 
-parser.add_argument(
-    "--n_ensembles",
-    type=int,
-    default=4,
-    help="How many models to train in parallel"
-)
 
-parser.add_argument(
-    "--way",
-    type=int,
-    default=20,
-    help="Number of classes per batch during training"
-)
-
-parser.add_argument(
-    "--train_shot",
-    type=int,
-    default=5,
-    help="Number of images per class used to form prototypes"
-)
-
-parser.add_argument(
-    "--test_shot",
-    type=int,
-    default=15,
-    help="Number of images per class used to make predictions"
-)
-
-parser.add_argument(
-    "--bf",
-    action="store_true",
-    default=False,
-    help="Use batch folding? (true in notebook)"
-
-)
-
-parser.add_argument(
-    "--cp",
-    action="store_true",
-    default=False,
-    help="Use covariance pooling? (true in notebook)"
-
-)
-
-
-parser.add_argument(
-    "--localizing",
-    action="store_true",
-    default=False,
-    help="Use localization? (true in NB)"
-)
-
-parser.add_argument(
-    "--fsl",
-    action="store_true",
-    default=False,
-    help="If you are using localization: few-shot, or parametric? Few-shot if True, param if False"
-)
-
-parser.add_argument(
-    "--augflip",
-    action="store_true",
-    default=False,
-    help="Horizontal flip data augmentation (true in NB)"
-)
-parser.add_argument(
-    "--network_width",
-    type=int,
-    default=64,
-    help="Network width"
-)
