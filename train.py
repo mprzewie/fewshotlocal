@@ -78,6 +78,12 @@ parser.add_argument(
 
 )
 
+parser.add_argument(
+    "--bkb",
+    default="pn",
+    choices=["pn", "resnet"],
+    help="Backbone"
+)
 
 parser.add_argument(
     "--localizing",
@@ -106,6 +112,13 @@ parser.add_argument(
     help="Network width"
 )
 
+parser.add_argument(
+    "--lr",
+    type=float,
+    default=0.001,
+    help="Learning rate"
+)
+
 args = parser.parse_args()
 args_dict = vars(args)
 pprint(args_dict)
@@ -131,6 +144,7 @@ cudnn.benchmark = True
 way = args.way                            # Number of classes per batch during training
 trainshot = args.train_shot                       # Number of images per class used to form prototypes
 testshot = args.test_shot                       # Number of images per class used to make predictions
+backbone = args.bkb
 
 # Model construction
 folding = args.bf                      # Use batch folding?
@@ -138,7 +152,7 @@ covariance_pooling = args.cp           # Use covariance pooling?
 localizing = args.localizing                   # Use localization?
 fewshot_local = args.fsl                # If you are using localization: few-shot, or parametric? Few-shot if True, param if False
 network_width = args.network_width                 # Number of channels at every layer of the network
-
+lr = args.lr
 # Data loading
 augmentation_flipping = args.augflip        # Horizontal flip data augmentation
 include_masks = (localizing         # Include or ignore the bounding box annotations?
@@ -192,9 +206,9 @@ train_loader = torch.utils.data.DataLoader(
 print('Data loaded!')
 
 models = [Network(network_width, folding, covariance_pooling, 
-                  localizing, fewshot_local, shots).cuda() 
+                  localizing, fewshot_local, shots, backbone_kind=backbone).cuda() 
           for i in range(ensemble)]
-optimizer = [optim.Adam(m.parameters(), lr=.001) for m in models]
+optimizer = [optim.Adam(m.parameters(), lr=lr) for m in models]
 scheduler = [optim.lr_scheduler.LambdaLR(o, lambda x: 1/(2**x)) for o in optimizer]
 criterion = NLLLoss().cuda()
 

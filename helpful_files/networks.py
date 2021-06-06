@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.parameter import Parameter
-
+from helpful_files import backbones as bkb
 
 class Block(nn.Module):
     def __init__(self, insize, outsize):
@@ -33,7 +33,8 @@ class PROTO(nn.Module):
         )
         
     def forward(self, inp):
-        return self.process(inp)
+        res = self.process(inp)
+        return res
 
     
 #-----------PREDICTORS
@@ -88,14 +89,17 @@ def covapool(inp, _, __):
     
 # Folded few-shot localization, with/without covariance pooling
 def fL(inp, m, way, covariancing):
+    # print("fl", m.shape)
     b = inp.size(0)
     # Create folded bcentroids, mask off inputs
     masks = torch.cat([m, 1-m], dim=1).view(b, 1, 2, m.size(2), m.size(3)) # B 1 2 10 10
     bsize = masks.view(*masks.size()[:-2], -1).sum(-1)+.01 # B 1 2
+    # print(0, masks.shape, bsize.shape)
     bcentroids = (inp.unsqueeze(2)*masks).view(b, inp.size(1), 2, -1).sum(-1)/bsize # B 64 2
     bcentroids = (bcentroids.sum(0).unsqueeze(0)-bcentroids).unsqueeze(-1).unsqueeze(-1)/(b-1) # B 64 2 1 1
     masks = torch.sum((inp.unsqueeze(2)-bcentroids)**2, 1).neg().unsqueeze(1) # B 1 2 10 10
     masks = F.softmax(masks, dim=2)
+    # print(1, masks.shape, bcentroids.shape)
     # Perform fore/back separation and appropriate expansion
     bsize = masks.view(*masks.size()[:-2], -1).sum(-1)+.01
     out = (inp.unsqueeze(2)*masks).view(b, inp.size(1), 2, -1) # B 64 2 100
@@ -110,6 +114,7 @@ def fL(inp, m, way, covariancing):
 
 # Unfolded few-shot localization, with/without covariance pooling
 def ufL(inp, m, way, bshot, covariancing):
+    # print("ufl")
     # Create folded bcentroids, mask off inputs
     m = m[:way*bshot]
     masks = torch.cat([m, 1-m], dim=1).view(m.size(0), 1, 2, m.size(2), m.size(3)) # B 1 2 10 10
@@ -217,12 +222,19 @@ def fsCL(inp, fbvectors, _):
 
         
 #-----------THE ACTUAL NETWORK
+
+def get_backbone(kind, w):
+    if kind=="pn":
+        return PROTO(w)
+    elif kind=="resnet":
+        return bkb.ResNet(w)
     
+    raise TypeError(kind)
     
 class Network(nn.Module):
-    def __init__(self, w, folding, cova, local, proto, shots):
+    def __init__(self, w, folding, cova, local, proto, shots, backbone_kind):
         super(Network, self).__init__()
-        self.encode = PROTO(w)
+        self.encode = get_backbone(w=w, kind=backbone_kind)
         self.shots = shots
         # Numerical codes here correspond to the codes used in the ablation study figure
         if not local:
@@ -248,8 +260,14 @@ class Network(nn.Module):
     def forward(self, inp, masks):
         assert inp.size(0)%sum(self.shots) == 0, "Error: batch size does not match given shot values."
         way = inp.size(0)//sum(self.shots)
+        # print(inp.shape, masks.shape)
+        # print(masks[0, 0])
         out = self.encode(inp)
+        # print(out.shape)
+        # print(self.postprocess)
         out = self.postprocess(out, masks, way)
+        # assert False
+
         out = self.predict(out, way)
         return out
         

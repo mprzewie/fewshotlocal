@@ -15,16 +15,11 @@ import json
 
 from tqdm import tqdm
 from dotted.utils import dot
+from copy import deepcopy
 
-from helpful_files.networks import PROTO, avgpool, covapool, pL, pCL, fsL, fsCL, fbpredict
+from helpful_files.networks import PROTO, avgpool, covapool, pL, pCL, fsL, fsCL, fbpredict, get_backbone
 from helpful_files.testing import *
 
-parser.add_argument(
-    "--k",
-    type=int,
-    default=1,
-    help="K in Top-K evaluation"
-)
 
 parser.add_argument(
     "--batch_size",
@@ -68,11 +63,12 @@ covariance_pooling = train_args.cp           # Use covariance pooling?
 localizing = train_args.localizing                   # Use localization?
 fewshot_local = train_args.fsl                # If you are using localization: few-shot, or parametric? Few-shot if True, param if False
 network_width = train_args.network_width                 # Number of channels at every layer of the network
+backbone = train_args.bkb
 
 # Batch construction
 bsize = args.batch_size                         # Batch size
 boxes_available = 10                # Percentage of images with bounding boxes available (few-shot localization models only)
-k = args.k
+# k = args.k
 
 # Data loading
 include_masks = (localizing         # Include or ignore the bounding box annotations?
@@ -138,7 +134,7 @@ ngiv = ngiv.long().tolist()
 
 print('Data loaded!')
 
-models = [PROTO(network_width).cuda() for i in range(ensemble)]
+models = [get_backbone(backbone, network_width).cuda() for i in range(ensemble)]
 expander = avgpool()
 if localizing:
     if fewshot_local:
@@ -147,7 +143,7 @@ if localizing:
         expander = pCL(network_width) if covariance_pooling else pL(network_width)
 elif covariance_pooling:
     expander = covapool
-expanders = [expander for _ in range(ensemble)]
+expanders = [deepcopy(expander) for _ in range(ensemble)]
 
 # Load saved parameters
 model_state = torch.load(model)
@@ -164,9 +160,18 @@ if localizing and not fewshot_local:
 
 print("Ready to go!")
 
-acclist = []
-pcacclist = []
-alldispacc = np.zeros(way)
+acclists = {
+    1: [],
+    5: []
+}
+pcacclists = {
+    1: [],
+    5: []
+}
+alldispaccs = {
+    1: np.zeros(way),
+    5: np.zeros(way)
+}
 for r in tqdm(range(n_trials)):
     # Accumulate foreground/background prototypes, if using
     fbcentroids = (accumulateFB(models, refr_loader, way, network_width, ngiv, bsize)
@@ -176,58 +181,66 @@ for r in tqdm(range(n_trials)):
     centroids, counts = accumulate(models, refr_loader, expanders, 
                                    fbcentroids, way, d)
     # Score the models
-    allacc, dispacc, perclassacc = score(k, centroids, fbcentroids, models, 
-                                         query_loader, expanders, way)
-    # Record statistics
-    acclist = acclist+allacc
-    pcacclist = pcacclist+list(perclassacc)
-    alldispacc += dispacc
+    for k in [1, 5]:
+        allacc, dispacc, perclassacc = score(k, centroids, fbcentroids, models, 
+                                            query_loader, expanders, way)
+        # Record statistics
+        acclists[k] = acclists[k]+allacc
+        pcacclists[k] = pcacclists[k]+list(perclassacc)
+        alldispaccs[k] += dispacc
 
-# Aggregate collected statistics
-accs = sum(acclist)/n_trials/ensemble
-pcaccs = sum(pcacclist)/n_trials/ensemble
-alldispacc = alldispacc/n_trials
-confs = 1.96*np.sqrt(np.var(acclist)/n_trials/ensemble)
-pcconfs = 1.96*np.sqrt(np.var(pcacclist)/n_trials/ensemble)
+for k in [1,5]:
 
-# Report
-print("Accuracies and 95% confidence intervals")
-print("Mean accuracy: \t\t%.2f \t+/- %.2f" % (accs*100, confs*100))
-print("Per-class accuracy: \t%.2f \t+/- %.2f" % (pcaccs*100, pcconfs*100))
+    acclist = acclists[k]
+    pcacclist = pcacclists[k]
+    alldispacc = alldispaccs[k]
 
-with (experiment_path / f"test_top_{k}.json").open("w") as f:
-    json.dump(
-        {
-            "top_k": k,
-            "accuracy": {
-                "mean": accs,
-                "std": confs,
-                "list": acclist
+    # Aggregate collected statistics
+    accs = sum(acclist)/n_trials/ensemble
+    pcaccs = sum(pcacclist)/n_trials/ensemble
+    alldispacc = alldispacc/n_trials
+    confs = 1.96*np.sqrt(np.var(acclist)/n_trials/ensemble)
+    pcconfs = 1.96*np.sqrt(np.var(pcacclist)/n_trials/ensemble)
+
+    # Report
+    print(f"Top-{k}")
+    print("Accuracies and 95% confidence intervals")
+    print("Mean accuracy: \t\t%.2f \t+/- %.2f" % (accs*100, confs*100))
+    print("Per-class accuracy: \t%.2f \t+/- %.2f" % (pcaccs*100, pcconfs*100))
+    print("=====")
+    with (experiment_path / f"test_top_{k}.json").open("w") as f:
+        json.dump(
+            {
+                "top_k": k,
+                "accuracy": {
+                    "mean": accs,
+                    "std": confs,
+                    "list": acclist
+                },
+                "per_class_accuracy": {
+                    "mean": pcaccs,
+                    "std": pcconfs,
+                    "list": pcacclist
+                },
+                "n_trials": n_trials,
+                "ensemble": ensemble
             },
-            "per_class_accuracy": {
-                "mean": pcaccs,
-                "std": pcconfs,
-                "list": pcacclist
-            },
-            "n_trials": n_trials,
-            "ensemble": ensemble
-        },
-        f,
-        indent=2
-    )
-    
-logcounts = [np.log10(c) for c in counts]
-pl.figure()
-pl.axhline(0,color='k')
-pl.scatter(counts, dispacc*100, s=4)
-z = np.polyfit(logcounts, np.array(dispacc)*100, 1)
-p = np.poly1d(z)
-pl.plot([min(counts),max(counts)], [p(min(logcounts)),p(max(logcounts))], "r--")
-pl.ylim([0,100])
-pl.xlabel('# Reference Images')
-pl.ylabel('Percentage Points')
-pl.xscale('log')
-pl.title('Per-Class Top-%d Accuracy' % k)
-pl.savefig(experiment_path / f"test_top_{k}.png")
+            f,
+            indent=2
+        )
+        
+    logcounts = [np.log10(c) for c in counts]
+    pl.figure()
+    pl.axhline(0,color='k')
+    pl.scatter(counts, dispacc*100, s=4)
+    z = np.polyfit(logcounts, np.array(dispacc)*100, 1)
+    p = np.poly1d(z)
+    pl.plot([min(counts),max(counts)], [p(min(logcounts)),p(max(logcounts))], "r--")
+    pl.ylim([0,100])
+    pl.xlabel('# Reference Images')
+    pl.ylabel('Percentage Points')
+    pl.xscale('log')
+    pl.title('Per-Class Top-%d Accuracy' % k)
+    pl.savefig(experiment_path / f"test_top_{k}.png")
 
 
