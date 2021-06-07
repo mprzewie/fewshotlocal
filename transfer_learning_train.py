@@ -47,6 +47,13 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "--ft_epochs",
+    type=int,
+    default=10,
+    help="Number of epochs for fine-tuning"
+)
+
+parser.add_argument(
     "--batch_size",
     type=int,
     default=64,
@@ -109,6 +116,25 @@ train_loader = torch.utils.data.DataLoader(
     shuffle=True,
     num_workers=workers,
     pin_memory=True)
+
+refr_dataset = datasets.ImageFolder(
+    join(datapath, 'refr'),
+    loader=lambda x: load_transform(x, None, transform, False)
+)
+query_dataset = datasets.ImageFolder(
+    join(datapath, 'query'),
+    loader=lambda x: load_transform(x, None, transform, False)
+)
+refr_loader = torch.utils.data.DataLoader(
+    refr_dataset,
+    num_workers=workers,
+    pin_memory=True)
+query_loader = torch.utils.data.DataLoader(
+    query_dataset,
+    batch_sampler=OrderedSampler(query_dataset, args.batch_size),
+    num_workers=workers,
+    pin_memory=True)
+
 print('Data loaded!')
 
 models = [resnet50(pretrained=True) for _ in range(ensemble)]
@@ -128,6 +154,7 @@ print('Ready to go!')
 start = time.time()
 trainlosses, acctracker = [[] for _ in range(ensemble)], [[] for _ in range(ensemble)]
 epochs = ncuts * epoch
+test_way = len(refr_dataset.classes)
 
 for e in tqdm(range(epochs)):
 
@@ -172,3 +199,110 @@ for e in tqdm(range(epochs)):
     print()
 
 print("Training complete: %.2f hours total" % ((time.time() - start) / 3600))
+
+print('Fine-tuning on refr dataset')
+optimizer = [optim.Adam(m.parameters(), lr=0.0001) for m in models]
+for i in range(ensemble):
+    for param in models[i].parameters():
+        param.requires_grad = False
+    models[i].fc = nn.Linear(models[i].fc.in_features, test_way)
+    models[i].cuda()
+
+start = time.time()
+
+for e in tqdm(range(args.ft_epochs)):
+    # Train for one epoch
+    trainloss, acc = train_resnet(refr_loader, models, optimizer, criterion, verbosity)
+
+    print("Fine-tune loss is: " + str(trainloss) +
+          "\nFine-tune accuracy is: " + str(acc) + "\n")
+
+    # Update the graphics, report
+    # display.clear_output(wait=True)
+    for j in range(ensemble):
+        trainlosses[j].append(trainloss[j])
+        acctracker[j].append(acc[j])
+    pl.figure(1, figsize=(15, 15))
+    for i in range(ensemble):
+        pl.subplot(ensemble, 2, 2 * i + 1)
+        pl.plot(trainlosses[i])
+        pl.ylim((0, 3))
+        pl.title(f"E {i}: Fine-tuning Loss")
+        pl.subplot(ensemble, 2, 2 * i + 2)
+        pl.plot(acctracker[i])
+        pl.ylim((0, 1))
+        pl.title(f"E {i}: Fine-tuning Acc")
+    pl.savefig(experiment_path / "fine-tuning.png")
+    with (experiment_path / "history-ft.json").open("w") as f:
+        json.dump({
+            "args": dumpable_args,
+            "ft_loss": trainlosses,
+            "ft_acc": acctracker
+        }, f)
+
+    torch.save([m.state_dict() for m in models], savepath)
+
+    print("Approximately %.2f hours to completion" % ((time.time() - start) / (e + 1) * (args.ft_epochs - e) / 3600))
+    print()
+
+acclists = {
+    1: [],
+    5: []
+}
+pcacclists = {
+    1: [],
+    5: []
+}
+alldispaccs = {
+    1: np.zeros(test_way),
+    5: np.zeros(test_way)
+}
+
+for model in models:
+    model.eval()
+
+# Score the models
+for k in [1, 5]:
+    allacc, dispacc, perclassacc = score_resnet(k, models, query_loader, test_way)
+    # Record statistics
+    acclists[k] = acclists[k] + allacc
+    pcacclists[k] = pcacclists[k] + list(perclassacc)
+    alldispaccs[k] += dispacc
+
+for k in [1, 5]:
+    acclist = acclists[k]
+    pcacclist = pcacclists[k]
+    alldispacc = alldispaccs[k]
+
+    # Aggregate collected statistics
+    accs = sum(acclist) / ensemble
+    pcaccs = sum(pcacclist) / ensemble
+    alldispacc = alldispacc
+    confs = 1.96 * np.sqrt(np.var(acclist) / ensemble)
+    pcconfs = 1.96 * np.sqrt(np.var(pcacclist) / ensemble)
+
+    # Report
+    print(f"Top-{k}")
+    print("Accuracies and 95% confidence intervals")
+    print("Mean accuracy: \t\t%.2f \t+/- %.2f" % (accs * 100, confs * 100))
+    print("Per-class accuracy: \t%.2f \t+/- %.2f" % (pcaccs * 100, pcconfs * 100))
+    print("=====")
+    with (experiment_path / f"test_top_{k}.json").open("w") as f:
+        json.dump(
+            {
+                "top_k": k,
+                "accuracy": {
+                    "mean": accs,
+                    "std": confs,
+                    "list": acclist
+                },
+                "per_class_accuracy": {
+                    "mean": pcaccs,
+                    "std": pcconfs,
+                    "list": pcacclist
+                },
+                "ensemble": ensemble
+            },
+            f,
+            indent=2
+        )

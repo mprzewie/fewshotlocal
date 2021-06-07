@@ -227,6 +227,53 @@ def score(k, centroids, bcentroids, models, loader, expanders, way):
     return allacc, np.mean(perclassacc, axis=0), np.mean(perclassacc, axis=1)
 
 
+def score_resnet(k, models, loader, way):
+    esize = len(models)
+    right = [0] * esize
+    allright = [0] * esize
+    perclassacc = np.array([[0.] * way for _ in range(esize)])
+    catindex = 0
+    lastcat = -1
+    count = 0
+    allcount = 0
+    progress = torch.zeros(1, way)
+    for i, ((inp, _), cat) in tqdm(enumerate(loader), "score"):
+        catindex = cat[0]
+        if catindex != lastcat:  # We're about to move to another category
+            # Write the values
+            if i != 0:
+                allcount += count
+                for j in range(esize):
+                    allright[j] += right[j]
+                    perclassacc[j, lastcat] = right[j] / count
+            lastcat = catindex  # Record the current category
+            count = 0  # Reset divisor
+            right = [0] * esize  # Reset accumulator
+            progress[0, lastcat] = 1
+
+        # Predict
+        inp = inp.cuda()
+        targ = cat.cuda()
+        with torch.no_grad():
+            for j in range(esize):
+                out = models[j](inp)
+                _, pred = out.topk(k, 1, True, True)
+                pred = pred.t()
+                right[j] += pred.eq(targ.view(1, -1).expand_as(pred)).contiguous()[:k].view(-1).sum(0,keepdim=True).float().item()
+        count += inp.size(0)
+
+    # Record last category
+    allcount += count
+    for j in range(esize):
+        allright[j] += right[j]
+        perclassacc[j, catindex] = right[j]/count
+
+    # Final reporting / recording
+    allacc = [r/allcount for r in allright]
+    
+    return allacc, np.mean(perclassacc, axis=0), np.mean(perclassacc, axis=1)
+
+
 
 
 
