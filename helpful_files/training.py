@@ -114,8 +114,6 @@ def train(train_loader, models, optimizer, criterion, way, shots, verbosity):
 
 
 def train_resnet(train_loader, models, optimizer, criterion, verbosity):
-    for model in models:
-        model.train()
     ensemble = len(models)
     allloss = [0] * ensemble
     acctracker = [0] * ensemble
@@ -133,9 +131,9 @@ def train_resnet(train_loader, models, optimizer, criterion, verbosity):
             # Record training statistics
             allloss[j] += loss.item()
             _, bins = torch.max(out, 1)
-            acc = torch.sum(torch.eq(bins, target)).item()
+            acc = torch.sum(torch.eq(bins, target)).item() / len(target)
             acctracker[j] += acc
         if i % verbosity == 0:
-            print(f'{i} of approx. {len(train_loader)}')
+            print(f'{i} of approx. {len(train_loader)}, acc {acctracker[0] / (i+1)}, loss {allloss[0] / (i+1)}')
 
     return [L / (i + 1) for L in allloss], [L / (i + 1) for L in acctracker]

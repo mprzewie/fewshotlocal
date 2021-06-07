@@ -115,10 +115,11 @@ models = [resnet50(pretrained=True) for _ in range(ensemble)]
 for model in models:
     model.fc = nn.Linear(model.fc.in_features, len(train_dataset.classes))
     model.cuda()
+    model.train()
 
-optimizer = [optim.Adam(m.parameters(), lr=.001) for m in models]
+optimizer = [optim.Adam(m.parameters(), lr=0.0001) for m in models]
 scheduler = [optim.lr_scheduler.LambdaLR(o, lambda x: 1 / (2 ** x)) for o in optimizer]
-criterion = NLLLoss()
+criterion = nn.CrossEntropyLoss()
 
 nweights = sum([i.numel() for i in list(models[0].parameters())])
 print(nweights, "parameters in each neural net.")
