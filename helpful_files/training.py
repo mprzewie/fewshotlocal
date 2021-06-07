@@ -112,3 +112,30 @@ def train(train_loader, models, optimizer, criterion, way, shots, verbosity):
             print('%d of approx. 192270'%(i*way*sum(shots)))
     return [L/(i+1) for L in allloss], [L/(i+1) for L in acctracker]
 
+
+def train_resnet(train_loader, models, optimizer, criterion, verbosity):
+    for model in models:
+        model.train()
+    ensemble = len(models)
+    allloss = [0] * ensemble
+    acctracker = [0] * ensemble
+    print("Training images covered this round:")
+    for i, ((inputs, _), target) in enumerate(train_loader):
+        inputs = inputs.cuda()
+        target = target.cuda()
+        for j in range(ensemble):
+            models[j].zero_grad()
+            # Predict, step
+            out = models[j](inputs)
+            loss = criterion(out, target)
+            loss.backward()
+            optimizer[j].step()
+            # Record training statistics
+            allloss[j] += loss.item()
+            _, bins = torch.max(out, 1)
+            acc = torch.sum(torch.eq(bins, target)).item()
+            acctracker[j] += acc
+        if i % verbosity == 0:
+            print(f'{i} of approx. {len(train_loader)}')
+
+    return [L / (i + 1) for L in allloss], [L / (i + 1) for L in acctracker]
