@@ -118,6 +118,7 @@ def train_resnet(train_loader, models, optimizer, criterion, verbosity):
     allloss = [0] * ensemble
     acctracker = [0] * ensemble
     print("Training images covered this round:")
+    train_len = len([_ for _ in train_loader])
     for i, ((inputs, _), target) in enumerate(train_loader):
         inputs = inputs.cuda()
         target = target.cuda()
@@ -134,6 +135,6 @@ def train_resnet(train_loader, models, optimizer, criterion, verbosity):
             acc = torch.sum(torch.eq(bins, target)).item() / len(target)
             acctracker[j] += acc
         if i % verbosity == 0:
-            print(f'{i} of approx. {len(train_loader)}, acc {acctracker[0] / (i+1)}, loss {allloss[0] / (i+1)}')
+            print(f'{i} of approx. {train_len}, acc {acctracker[0] / (i+1)}, loss {allloss[0] / (i+1)}')
 
     return [L / (i + 1) for L in allloss], [L / (i + 1) for L in acctracker]

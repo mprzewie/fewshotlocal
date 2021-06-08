@@ -76,10 +76,19 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "--ft_freeze",
+    action="store_true",
+    help="Freeze ResNet when finetuning"
+
+)
+
+
+parser.add_argument(
     "--ctd",
     action="store_true",
     help="Load model from saved weights befroe pretraining"
 )
+
 
 
 
@@ -153,6 +162,7 @@ query_dataset = datasets.ImageFolder(
 refr_loader = torch.utils.data.DataLoader(
     refr_dataset,
     num_workers=workers,
+    batch_sampler = tst.OrderedSampler(refr_dataset, args.batch_size),
     pin_memory=True)
 query_loader = torch.utils.data.DataLoader(
     query_dataset,
@@ -236,8 +246,9 @@ print("Training complete: %.2f hours total" % ((time.time() - start) / 3600))
 print('Fine-tuning on refr dataset')
 optimizer = [optim.Adam(m.parameters(), lr=ft_lr) for m in models]
 for i in range(ensemble):
-    for param in models[i].parameters():
-        param.requires_grad = False
+    if args.ft_freeze:
+        for param in models[i].parameters():
+            param.requires_grad = False
     models[i].fc = nn.Linear(models[i].fc.in_features, test_way)
     models[i].cuda()
 
