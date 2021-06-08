@@ -16,7 +16,7 @@ parser.add_argument(
     "--dataset",
     type=str,
     default="meta_iNat",
-    choices=["meta_iNat", "tiered_meta_iNat"],
+    choices=["meta_iNat", "tiered_meta_iNat", "cub"],
     help="dataset"  
 )
 

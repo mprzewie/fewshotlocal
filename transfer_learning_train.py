@@ -14,9 +14,10 @@ import torchvision.transforms as transforms
 from torch.nn import NLLLoss
 from torchvision.models import resnet50
 from tqdm import tqdm
-
+from pathlib import Path
 from common import parser
 from helpful_files.training import *
+from helpful_files import testing as tst
 
 parser.add_argument(
     "--n_ensembles",
@@ -60,6 +61,28 @@ parser.add_argument(
     help="Batch size"
 )
 
+parser.add_argument(
+    "--lr",
+    type=float,
+    default=0.0001,
+    help="LR"
+)
+
+parser.add_argument(
+    "--ft_lr",
+    type=float,
+    default=0.0001,
+    help="LR (Fine-tuning)"
+)
+
+parser.add_argument(
+    "--ctd",
+    action="store_true",
+    help="Load model from saved weights befroe pretraining"
+)
+
+
+
 args = parser.parse_args()
 args_dict = vars(args)
 pprint(args_dict)
@@ -80,6 +103,8 @@ ensemble = args.n_ensembles  # How many models to train in parallel
 torch.cuda.set_device(gpu)
 cudnn.benchmark = True
 
+lr = args.lr
+ft_lr = args.ft_lr
 # Data loading
 augmentation_flipping = args.augflip  # Horizontal flip data augmentation
 include_masks = False
@@ -119,11 +144,11 @@ train_loader = torch.utils.data.DataLoader(
 
 refr_dataset = datasets.ImageFolder(
     join(datapath, 'refr'),
-    loader=lambda x: load_transform(x, None, transform, False)
+    loader=lambda x: load_transform(x, None, transform, False, False)
 )
 query_dataset = datasets.ImageFolder(
     join(datapath, 'query'),
-    loader=lambda x: load_transform(x, None, transform, False)
+    loader=lambda x: load_transform(x, None, transform, False, False)
 )
 refr_loader = torch.utils.data.DataLoader(
     refr_dataset,
@@ -131,7 +156,7 @@ refr_loader = torch.utils.data.DataLoader(
     pin_memory=True)
 query_loader = torch.utils.data.DataLoader(
     query_dataset,
-    batch_sampler=OrderedSampler(query_dataset, args.batch_size),
+    batch_sampler=tst.OrderedSampler(query_dataset, args.batch_size),
     num_workers=workers,
     pin_memory=True)
 
@@ -143,7 +168,15 @@ for model in models:
     model.cuda()
     model.train()
 
-optimizer = [optim.Adam(m.parameters(), lr=0.0001) for m in models]
+if Path(savepath).exists() and args.ctd:
+    print("Attempting to load weights from", savepath)
+    weights = torch.load(savepath, map_location="cpu")
+    for m, sd in zip(models, weights):
+        m.load_state_dict(sd)
+        m.cuda()
+        m.train()
+
+optimizer = [optim.Adam(m.parameters(), lr=lr) for m in models]
 scheduler = [optim.lr_scheduler.LambdaLR(o, lambda x: 1 / (2 ** x)) for o in optimizer]
 criterion = nn.CrossEntropyLoss()
 
@@ -201,7 +234,7 @@ for e in tqdm(range(epochs)):
 print("Training complete: %.2f hours total" % ((time.time() - start) / 3600))
 
 print('Fine-tuning on refr dataset')
-optimizer = [optim.Adam(m.parameters(), lr=0.0001) for m in models]
+optimizer = [optim.Adam(m.parameters(), lr=ft_lr) for m in models]
 for i in range(ensemble):
     for param in models[i].parameters():
         param.requires_grad = False
@@ -240,7 +273,7 @@ for e in tqdm(range(args.ft_epochs)):
             "ft_acc": acctracker
         }, f)
 
-    torch.save([m.state_dict() for m in models], savepath)
+    # torch.save([m.state_dict() for m in models], savepath)
 
     print("Approximately %.2f hours to completion" % ((time.time() - start) / (e + 1) * (args.ft_epochs - e) / 3600))
     print()
@@ -263,7 +296,7 @@ for model in models:
 
 # Score the models
 for k in [1, 5]:
-    allacc, dispacc, perclassacc = score_resnet(k, models, query_loader, test_way)
+    allacc, dispacc, perclassacc = tst.score_resnet(k, models, query_loader, test_way)
     # Record statistics
     acclists[k] = acclists[k] + allacc
     pcacclists[k] = pcacclists[k] + list(perclassacc)

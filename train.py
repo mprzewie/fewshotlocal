@@ -181,6 +181,7 @@ with (experiment_path / "rerun.sh").open("w") as f:
 d_boxes = torch.load(join(datapath,'box_coords.pth'))
 
 transform = transforms.Compose([
+    transforms.Resize((84, 84)),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.4905, 0.4961, 0.4330],std=[0.1737, 0.1713, 0.1779])
     ])

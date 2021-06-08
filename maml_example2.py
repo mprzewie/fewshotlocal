@@ -17,7 +17,9 @@ from pathlib import Path
 import learn2learn as l2l
 from helpful_files.training import *
 import os
-
+from tqdm import tqdm
+from pathlib import Path
+import dill
 
 def accuracy(predictions, targets):
     predictions = predictions.argmax(dim=1)
@@ -51,49 +53,61 @@ def fast_adapt(batch, learner, loss, adaptation_steps, shots, ways, device):
 def main(datapath, lr=0.005, maml_lr=0.01, iterations=1000, ways=5, shots=1, meta_batch_size=32, fas=5, device=torch.device("cuda"),
          download_location='~/data'):
 
+    TRAIN = "train"
+    VAL = "refr"
+    TEST = "query"
+
     data_transforms = {
-        'train': transforms.Compose([
+        TRAIN: transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.4905, 0.4961, 0.4330],std=[0.1737, 0.1713, 0.1779])
         ]),
-        'test': transforms.Compose([
+        TEST: transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.4905, 0.4961, 0.4330],std=[0.1737, 0.1713, 0.1779])
         ]),
-        'val': transforms.Compose([
+        VAL: transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.4905, 0.4961, 0.4330],std=[0.1737, 0.1713, 0.1779])
         ])
     }
 
-    image_datasets = {x: datasets.ImageFolder(os.path.join(datapath, x), data_transforms[x]) for x in ["train", "test", "val"]}
-    class_names = image_datasets["train"].classes
-    dataset_dict = {x: l2l.data.MetaDataset(image_datasets[x]) for x in ["train", "test", "val"]}
+    image_datasets = {x: datasets.ImageFolder(os.path.join(datapath, x), data_transforms[x]) for x in [TRAIN, VAL, TEST]}
+    class_names = image_datasets[TRAIN].classes
+    meta_path = Path(datapath) / "meta_datasets.pth"
 
-    train_dataset = dataset_dict["train"]
-    valid_dataset = dataset_dict["val"]
-    test_dataset = dataset_dict["test"]
+    if meta_path.exists():
+        dataset_dict = torch.load(meta_path)
+    else:
 
-    train_transforms = [l2l.data.transforms.NWays(dataset_dict["train"], ways),
-                  l2l.data.transforms.KShots(dataset_dict["train"], 2*shots),
-                  l2l.data.transforms.LoadData(dataset_dict["train"])
+        dataset_dict = {x: l2l.data.MetaDataset(image_datasets[x]) for x in tqdm([TRAIN, VAL, TEST], "Meta datasets")}
+        torch.save(dataset_dict, meta_path, pickle_module=dill)
+
+
+    train_dataset = dataset_dict[TRAIN]
+    valid_dataset = dataset_dict[VAL]
+    test_dataset = dataset_dict[TEST]
+
+    train_transforms = [l2l.data.transforms.NWays(dataset_dict[TRAIN], ways),
+                  l2l.data.transforms.KShots(dataset_dict[TRAIN], 2*shots),
+                  l2l.data.transforms.LoadData(dataset_dict[TRAIN])
                   ]
     train_tasks = l2l.data.TaskDataset(train_dataset,
                                        task_transforms=train_transforms,
                                        num_tasks=20000)
                                        
-    valid_transforms = [ l2l.data.transforms.NWays(dataset_dict["val"], ways),
-                  l2l.data.transforms.KShots(dataset_dict["val"], 2*shots),
-                  l2l.data.transforms.LoadData(dataset_dict["val"])
+    valid_transforms = [ l2l.data.transforms.NWays(dataset_dict[VAL], ways),
+                  l2l.data.transforms.KShots(dataset_dict[VAL], 2*shots),
+                  l2l.data.transforms.LoadData(dataset_dict[VAL])
     ]
     valid_tasks = l2l.data.TaskDataset(valid_dataset,
                                        task_transforms=valid_transforms,
                                        num_tasks=600)
 
     test_transforms = [
-        l2l.data.transforms.NWays(dataset_dict["test"], ways),
-                  l2l.data.transforms.KShots(dataset_dict["test"], 2*shots),
-                  l2l.data.transforms.LoadData(dataset_dict["test"])
+        l2l.data.transforms.NWays(dataset_dict[TEST], ways),
+                  l2l.data.transforms.KShots(dataset_dict[TEST], 2*shots),
+                  l2l.data.transforms.LoadData(dataset_dict[TEST])
     ]
     test_tasks = l2l.data.TaskDataset(test_dataset,
                                       task_transforms=test_transforms,
@@ -101,11 +115,14 @@ def main(datapath, lr=0.005, maml_lr=0.01, iterations=1000, ways=5, shots=1, met
 
     print("Data loaded!")
     
-    model = l2l.vision.models.CNN4(ways)
+
+    model = l2l.vision.models.CNN4(len(class_names))
+
     model.to(device)
+    print(model)
     maml = l2l.algorithms.MAML(model, lr=maml_lr)
     opt = optim.Adam(maml.parameters(), lr=lr)
-    loss = nn.NLLLoss(reduction='mean')
+    loss = nn.CrossEntropyLoss(reduction='mean')
     adaptation_steps = 1
 
     for iteration in range(iterations):
@@ -131,7 +148,7 @@ def main(datapath, lr=0.005, maml_lr=0.01, iterations=1000, ways=5, shots=1, met
                                                                device)
             evaluation_error.backward()
             meta_train_error += evaluation_error.item()
-            meta_train_accuracy += evaluation_accuracy.item()
+            meta_train_accuracy += evaluation_accuracy
 
             # Compute meta-validation loss
             learner = maml.clone()
@@ -144,8 +161,7 @@ def main(datapath, lr=0.005, maml_lr=0.01, iterations=1000, ways=5, shots=1, met
                                                                ways,
                                                                device)
             meta_valid_error += evaluation_error.item()
-            meta_valid_accuracy += evaluation_accuracy.item()
-
+            meta_valid_accuracy += evaluation_accuracy
         # Print some metrics
         print('\n')
         print('Iteration', iteration)
@@ -173,7 +189,7 @@ def main(datapath, lr=0.005, maml_lr=0.01, iterations=1000, ways=5, shots=1, met
                                                            ways,
                                                            device)
         meta_test_error += evaluation_error.item()
-        meta_test_accuracy += evaluation_accuracy.item()
+        meta_test_accuracy += evaluation_accuracy
     print('Meta Test Error', meta_test_error / meta_batch_size)
     print('Meta Test Accuracy', meta_test_accuracy / meta_batch_size)
 

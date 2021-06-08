@@ -18,7 +18,6 @@ from dotted.utils import dot
 from copy import deepcopy
 
 from helpful_files.networks import PROTO, avgpool, covapool, pL, pCL, fsL, fsCL, fbpredict, get_backbone
-from helpful_files.testing import *
 
 
 parser.add_argument(
