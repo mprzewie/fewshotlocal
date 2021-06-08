@@ -149,7 +149,8 @@ train_loader = torch.utils.data.DataLoader(
     batch_size=args.batch_size,
     shuffle=True,
     num_workers=workers,
-    pin_memory=True)
+    pin_memory=True
+)
 
 refr_dataset = datasets.ImageFolder(
     join(datapath, 'refr'),
@@ -161,14 +162,18 @@ query_dataset = datasets.ImageFolder(
 )
 refr_loader = torch.utils.data.DataLoader(
     refr_dataset,
+    batch_size=args.batch_size,
+    shuffle=True,
     num_workers=workers,
-    batch_sampler = tst.OrderedSampler(refr_dataset, args.batch_size),
-    pin_memory=True)
+    pin_memory=True
+)
+
 query_loader = torch.utils.data.DataLoader(
     query_dataset,
     batch_sampler=tst.OrderedSampler(query_dataset, args.batch_size),
     num_workers=workers,
-    pin_memory=True)
+    pin_memory=True
+)
 
 print('Data loaded!')
 
@@ -244,7 +249,6 @@ for e in tqdm(range(epochs)):
 print("Training complete: %.2f hours total" % ((time.time() - start) / 3600))
 
 print('Fine-tuning on refr dataset')
-optimizer = [optim.Adam(m.parameters(), lr=ft_lr) for m in models]
 for i in range(ensemble):
     if args.ft_freeze:
         for param in models[i].parameters():
@@ -252,6 +256,7 @@ for i in range(ensemble):
     models[i].fc = nn.Linear(models[i].fc.in_features, test_way)
     models[i].cuda()
 
+optimizer = [optim.Adam(m.parameters(), lr=ft_lr) for m in models]
 start = time.time()
 
 for e in tqdm(range(args.ft_epochs)):
