@@ -199,7 +199,6 @@ elif args.model == 'vit':
 else:
     raise ValueError(f'Unrecognized model type: {args.model}')
 
-
 if Path(savepath).exists() and args.ctd:
     print("Attempting to load weights from", savepath)
     weights = torch.load(savepath, map_location="cpu")
@@ -271,7 +270,11 @@ for i in range(ensemble):
     if args.ft_freeze:
         for param in models[i].parameters():
             param.requires_grad = False
-    models[i].fc = nn.Linear(models[i].fc.in_features, test_way)
+    if args.model == 'resnet':
+        models[i].fc = nn.Linear(models[i].fc.in_features, test_way)
+    else:
+        models[i].classifier = nn.Linear(models[i].classifier.in_features, test_way)
+
     models[i].cuda()
 
 optimizer = [optim.Adam(m.parameters(), lr=ft_lr) for m in models]
