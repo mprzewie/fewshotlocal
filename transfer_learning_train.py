@@ -3,6 +3,7 @@ import sys
 import time
 from datetime import datetime
 from os.path import join
+from pathlib import Path
 from pprint import pprint
 
 import pylab as pl
@@ -11,19 +12,33 @@ import torch.nn as nn
 import torch.optim as optim
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
-from torch.nn import NLLLoss
-from torchvision.models import resnet50
 from tqdm import tqdm
-from pathlib import Path
+
 from common import parser
-from helpful_files.training import *
 from helpful_files import testing as tst
+from helpful_files.training import *
+from helpful_files.transfer_models import get_resnet, get_vit
 
 parser.add_argument(
     "--n_ensembles",
     type=int,
     default=1,
     help="How many models to train in parallel"
+)
+
+parser.add_argument(
+    "--model",
+    type=str,
+    default="resnet",
+    choices=["resnet", "vit"],
+    help="Which model use in transfer learning"
+)
+
+parser.add_argument(
+    "--vit_weights",
+    type=Path,
+    default="../imagenet21k+imagenet2012_ViT-B_16.pth",
+    help="Path to ViT weights (only when using ViT)"
 )
 
 parser.add_argument(
@@ -48,17 +63,16 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--ft_epochs",
-    type=int,
-    default=10,
-    help="Number of epochs for fine-tuning"
-)
-
-parser.add_argument(
     "--batch_size",
     type=int,
     default=64,
     help="Batch size"
+)
+
+parser.add_argument(
+    "--train",
+    action="store_true",
+    help='Run transfer learning with training'
 )
 
 parser.add_argument(
@@ -78,19 +92,15 @@ parser.add_argument(
 parser.add_argument(
     "--ft_freeze",
     action="store_true",
-    help="Freeze ResNet when finetuning"
+    help="Freeze model when fine-tuning"
 
 )
-
 
 parser.add_argument(
     "--ctd",
     action="store_true",
-    help="Load model from saved weights befroe pretraining"
+    help="Load model from saved weights before pretraining"
 )
-
-
-
 
 args = parser.parse_args()
 args_dict = vars(args)
@@ -134,15 +144,19 @@ with (experiment_path / "rerun.sh").open("w") as f:
     print("#", datetime.now(), file=f)
     print("python", *sys.argv, file=f)
 
-transform = transforms.Compose([
+transforms_list = [
     transforms.ToTensor(),
     transforms.RandomHorizontalFlip(),
     transforms.Normalize(mean=[0.4905, 0.4961, 0.4330], std=[0.1737, 0.1713, 0.1779])
-])
+]
+
+if args.model == 'vit':  # Need to resize images to match size of embeddings
+    transforms_list.append(transforms.Resize(384))
+transforms_list = transforms.Compose(transforms_list)
 
 train_dataset = datasets.ImageFolder(
     join(datapath, 'train'),
-    loader=lambda x: load_transform(x, None, transform, augmentation_flipping, include_masks)
+    loader=lambda x: load_transform(x, None, transforms_list, augmentation_flipping, include_masks)
 )
 train_loader = torch.utils.data.DataLoader(
     train_dataset,
@@ -154,11 +168,11 @@ train_loader = torch.utils.data.DataLoader(
 
 refr_dataset = datasets.ImageFolder(
     join(datapath, 'refr'),
-    loader=lambda x: load_transform(x, None, transform, False, False)
+    loader=lambda x: load_transform(x, None, transforms_list, False, False)
 )
 query_dataset = datasets.ImageFolder(
     join(datapath, 'query'),
-    loader=lambda x: load_transform(x, None, transform, False, False)
+    loader=lambda x: load_transform(x, None, transforms_list, False, False)
 )
 refr_loader = torch.utils.data.DataLoader(
     refr_dataset,
@@ -177,11 +191,14 @@ query_loader = torch.utils.data.DataLoader(
 
 print('Data loaded!')
 
-models = [resnet50(pretrained=True) for _ in range(ensemble)]
-for model in models:
-    model.fc = nn.Linear(model.fc.in_features, len(train_dataset.classes))
-    model.cuda()
-    model.train()
+n_classes = len(train_dataset.classes)
+if args.model == 'resnet':
+    models = get_resnet(ensemble, n_classes)
+elif args.model == 'vit':
+    models = get_vit(ensemble, n_classes, args.vit_weights)
+else:
+    raise ValueError(f'Unrecognized model type: {args.model}')
+
 
 if Path(savepath).exists() and args.ctd:
     print("Attempting to load weights from", savepath)
@@ -204,49 +221,50 @@ trainlosses, acctracker = [[] for _ in range(ensemble)], [[] for _ in range(ense
 epochs = ncuts * epoch
 test_way = len(refr_dataset.classes)
 
-for e in tqdm(range(epochs)):
+if args.train:
+    for e in tqdm(range(epochs)):
 
-    # Adjust learnrate
-    if e % epoch == 0:
-        [s.step() for s in scheduler]
+        # Adjust learnrate
+        if e % epoch == 0:
+            [s.step() for s in scheduler]
 
-    # Train for one epoch
-    trainloss, acc = train_resnet(train_loader, models, optimizer, criterion, verbosity)
+        # Train for one epoch
+        trainloss, acc = train_transfer(train_loader, models, optimizer, criterion, verbosity)
 
-    # Update the graphics, report
-    # display.clear_output(wait=True)
-    for j in range(ensemble):
-        trainlosses[j].append(trainloss[j])
-        acctracker[j].append(acc[j])
-    pl.figure(1, figsize=(15, 15))
-    for i in range(ensemble):
-        pl.subplot(ensemble, 2, 2 * i + 1)
-        pl.plot(trainlosses[i])
-        pl.ylim((0, 3))
-        pl.title(f"E {i}: Training Loss")
-        pl.subplot(ensemble, 2, 2 * i + 2)
-        pl.plot(acctracker[i])
-        pl.ylim((0, 1))
-        pl.title(f"E {i}: Training Acc")
-    pl.savefig(experiment_path / "training.png")
-    with (experiment_path / "history.json").open("w") as f:
-        json.dump({
-            "args": dumpable_args,
-            "train_loss": trainlosses,
-            "train_acc": acctracker
-        }, f)
+        # Update the graphics, report
+        # display.clear_output(wait=True)
+        for j in range(ensemble):
+            trainlosses[j].append(trainloss[j])
+            acctracker[j].append(acc[j])
+        pl.figure(1, figsize=(15, 15))
+        for i in range(ensemble):
+            pl.subplot(ensemble, 2, 2 * i + 1)
+            pl.plot(trainlosses[i])
+            pl.ylim((0, 3))
+            pl.title(f"E {i}: Training Loss")
+            pl.subplot(ensemble, 2, 2 * i + 2)
+            pl.plot(acctracker[i])
+            pl.ylim((0, 1))
+            pl.title(f"E {i}: Training Acc")
+        pl.savefig(experiment_path / "training.png")
+        with (experiment_path / "history.json").open("w") as f:
+            json.dump({
+                "args": dumpable_args,
+                "train_loss": trainlosses,
+                "train_acc": acctracker
+            }, f)
 
-    torch.save([m.state_dict() for m in models], savepath)
+        torch.save([m.state_dict() for m in models], savepath)
 
-    print("Training loss is: " + str(trainloss) +
-          "\nTraining accuracy is: " + str(acc) + "\n")
+        print("Training loss is: " + str(trainloss) +
+              "\nTraining accuracy is: " + str(acc) + "\n")
 
-    print("Models saved!")
+        print("Models saved!")
 
-    print("Approximately %.2f hours to completion" % ((time.time() - start) / (e + 1) * (epochs - e) / 3600))
-    print()
+        print("Approximately %.2f hours to completion" % ((time.time() - start) / (e + 1) * (epochs - e) / 3600))
+        print()
 
-print("Training complete: %.2f hours total" % ((time.time() - start) / 3600))
+    print("Training complete: %.2f hours total" % ((time.time() - start) / 3600))
 
 print('Fine-tuning on refr dataset')
 for i in range(ensemble):
@@ -257,11 +275,16 @@ for i in range(ensemble):
     models[i].cuda()
 
 optimizer = [optim.Adam(m.parameters(), lr=ft_lr) for m in models]
+scheduler = [optim.lr_scheduler.LambdaLR(o, lambda x: 1 / (2 ** x)) for o in optimizer]
 start = time.time()
 
-for e in tqdm(range(args.ft_epochs)):
+for e in tqdm(range(epochs)):
+    # Adjust learnrate
+    if e % epoch == 0:
+        [s.step() for s in scheduler]
+
     # Train for one epoch
-    trainloss, acc = train_resnet(refr_loader, models, optimizer, criterion, verbosity)
+    trainloss, acc = train_transfer(refr_loader, models, optimizer, criterion, verbosity)
 
     print("Fine-tune loss is: " + str(trainloss) +
           "\nFine-tune accuracy is: " + str(acc) + "\n")
@@ -289,9 +312,7 @@ for e in tqdm(range(args.ft_epochs)):
             "ft_acc": acctracker
         }, f)
 
-    # torch.save([m.state_dict() for m in models], savepath)
-
-    print("Approximately %.2f hours to completion" % ((time.time() - start) / (e + 1) * (args.ft_epochs - e) / 3600))
+    print("Approximately %.2f hours to completion" % ((time.time() - start) / (e + 1) * (epochs - e) / 3600))
     print()
 
 acclists = {
@@ -312,7 +333,7 @@ for model in models:
 
 # Score the models
 for k in [1, 5]:
-    allacc, dispacc, perclassacc = tst.score_resnet(k, models, query_loader, test_way)
+    allacc, dispacc, perclassacc = tst.score_transfer(k, models, query_loader, test_way)
     # Record statistics
     acclists[k] = acclists[k] + allacc
     pcacclists[k] = pcacclists[k] + list(perclassacc)

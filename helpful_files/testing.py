@@ -227,7 +227,7 @@ def score(k, centroids, bcentroids, models, loader, expanders, way):
     return allacc, np.mean(perclassacc, axis=0), np.mean(perclassacc, axis=1)
 
 
-def score_resnet(k, models, loader, way):
+def score_transfer(k, models, loader, way):
     esize = len(models)
     right = [0] * esize
     allright = [0] * esize
@@ -270,7 +270,7 @@ def score_resnet(k, models, loader, way):
 
     # Final reporting / recording
     allacc = [r/allcount for r in allright]
-    
+
     return allacc, np.mean(perclassacc, axis=0), np.mean(perclassacc, axis=1)
 
 

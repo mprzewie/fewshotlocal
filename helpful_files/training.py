@@ -113,7 +113,7 @@ def train(train_loader, models, optimizer, criterion, way, shots, verbosity):
     return [L/(i+1) for L in allloss], [L/(i+1) for L in acctracker]
 
 
-def train_resnet(train_loader, models, optimizer, criterion, verbosity):
+def train_transfer(train_loader, models, optimizer, criterion, verbosity):
     ensemble = len(models)
     allloss = [0] * ensemble
     acctracker = [0] * ensemble
