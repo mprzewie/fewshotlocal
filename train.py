@@ -1,23 +1,21 @@
-from common import parser
+import json
+import sys
+import time
+from datetime import datetime
+from os.path import join
 from pprint import pprint
 
-import torch
-from os.path import join
-from torch.nn import NLLLoss
-import torch.optim as optim
-import torchvision.transforms as transforms
-import torchvision.datasets as datasets
-import torch.backends.cudnn as cudnn
-
 import pylab as pl
-import time
-import json
+import torch.backends.cudnn as cudnn
+import torch.optim as optim
+import torchvision.datasets as datasets
+import torchvision.transforms as transforms
+from torch.nn import NLLLoss
+from tqdm import tqdm
 
+from common import parser
 from helpful_files.networks import Network
 from helpful_files.training import *
-from tqdm import tqdm
-from datetime import datetime
-import sys
 
 parser.add_argument(
     "--n_epochs_in_lr_cut",
@@ -129,6 +127,10 @@ pprint(args_dict)
 # General settings
 datapath = str(args.data_root / args.dataset)           # The location of your train, test, repr, and query folders. 
 experiment_path = args.results_root / args.dataset / args.experiment_name
+if args.without_symlinks:
+    images_dir = args.images_dir
+else:
+    images_dir = None
 
 savepath = str(experiment_path / args.weights_file)            # Where should your trained model(s) be saved, and under what name?
 gpu = args.gpu_id                            # What gpu do you wish to train on?
@@ -197,8 +199,8 @@ if localizing and fewshot_local and not folding:
     shots = [trainshot, trainshot, testshot-trainshot]
     
 train_dataset = datasets.ImageFolder(
-    join(datapath,'train'), 
-    loader = lambda x: load_transform(x, d_boxes, transform, augmentation_flipping, include_masks))
+    join(datapath, 'train'),
+    loader=lambda x: load_transform(x, d_boxes, transform, augmentation_flipping, include_masks, images_dir))
 train_loader = torch.utils.data.DataLoader(
     train_dataset, 
     batch_sampler = ProtoSampler(train_dataset, way, shots),

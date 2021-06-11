@@ -12,12 +12,26 @@ parser.add_argument(
     default=Path("/mnt/users/mprzewiezlikowski/local_truten/uj/data/meta_inat/"),
     help="data root"
 )
+
 parser.add_argument(
     "--dataset",
     type=str,
     default="meta_iNat",
     choices=["meta_iNat", "tiered_meta_iNat", "cub"],
     help="dataset"  
+)
+
+parser.add_argument(
+    "--without_symlinks",
+    action="store_true",
+    help='Only true when ran in system without symlinks, like Colab, Kaggle, etc.'
+)
+
+parser.add_argument(
+    "--images_dir",
+    type=Path,
+    default=Path("../meta_inat/inat2017_84x84"),
+    help="Path to images (only in runs without symlinks)"
 )
 
 parser.add_argument(

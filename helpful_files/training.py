@@ -1,14 +1,20 @@
+import os
+from copy import deepcopy
+
 import numpy as np
 import torch
-from copy import deepcopy
 from PIL import Image
 from torch.utils.data import Sampler
-import os
 
 
-def load_transform(path, boxdict, transform, flipping, masking):
+def load_transform(path, boxdict, transform, flipping, masking, images_dir):
+    # # Change path from dummy file to real image
+    if images_dir is not None:
+        class_number, file_name = os.path.normpath(path).split(os.sep)[-2:]
+        path = os.sep.join((str(images_dir), class_number, file_name))
+
     # Load the image
-    flip = (torch.rand(1)>.5).item()
+    flip = (torch.rand(1) > .5).item()
     with open(path, 'rb') as f:
         p = Image.open(f)
         p = p.convert('RGB')

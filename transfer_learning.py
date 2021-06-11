@@ -111,6 +111,10 @@ pprint(args_dict)
 # General settings
 datapath = str(args.data_root / args.dataset)  # The location of your train, test, repr, and query folders.
 experiment_path = args.results_root / args.dataset / args.experiment_name
+if args.without_symlinks:
+    images_dir = args.images_dir
+else:
+    images_dir = None
 
 savepath = str(experiment_path / args.weights_file)  # Where should your trained model(s) be saved, and under what name?
 gpu = args.gpu_id  # What gpu do you wish to train on?
@@ -175,7 +179,7 @@ test_transforms = transforms.Compose(test_transforms)
 
 train_dataset = datasets.ImageFolder(
     join(datapath, 'train'),
-    loader=lambda x: load_transform(x, None, transforms_list, False, False)
+    loader=lambda x: load_transform(x, None, transforms_list, False, False, images_dir)
 )
 train_loader = torch.utils.data.DataLoader(
     train_dataset,
@@ -187,11 +191,11 @@ train_loader = torch.utils.data.DataLoader(
 
 refr_dataset = datasets.ImageFolder(
     join(datapath, 'refr'),
-    loader=lambda x: load_transform(x, None, transforms_list, False, False)
+    loader=lambda x: load_transform(x, None, transforms_list, False, False, images_dir)
 )
 query_dataset = datasets.ImageFolder(
     join(datapath, 'query'),
-    loader=lambda x: load_transform(x, None, test_transforms, False, False)
+    loader=lambda x: load_transform(x, None, test_transforms, False, False, images_dir)
 )
 refr_loader = torch.utils.data.DataLoader(
     refr_dataset,

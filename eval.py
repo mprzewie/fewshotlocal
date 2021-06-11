@@ -1,24 +1,15 @@
-from common import parser
+import json
+from os.path import join
 from pprint import pprint
 
-import torch
-from os.path import join
-from torch.nn import NLLLoss
-import torch.optim as optim
-import torchvision.transforms as transforms
-import torchvision.datasets as datasets
 import torch.backends.cudnn as cudnn
-
-import pylab as pl
-import time
-import json
-
-from tqdm import tqdm
+import torchvision.datasets as datasets
+import torchvision.transforms as transforms
 from dotted.utils import dot
-from copy import deepcopy
 
-from helpful_files.networks import PROTO, avgpool, covapool, pL, pCL, fsL, fsCL, fbpredict, get_backbone
-
+from common import parser
+from helpful_files.networks import get_backbone
+from helpful_files.testing import *
 
 parser.add_argument(
     "--batch_size",
