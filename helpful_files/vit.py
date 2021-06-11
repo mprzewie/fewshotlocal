@@ -178,7 +178,6 @@ class VisionTransformer(nn.Module):
         fh, fw = patch_size
         gh, gw = h // fh, w // fw
         num_patches = gh * gw
-        print('num_patches', num_patches)
         self.embedding = nn.Conv2d(3, emb_dim, kernel_size=(fh, fw), stride=(fh, fw))
         # class token
         self.cls_token = nn.Parameter(torch.zeros(1, 1, emb_dim))

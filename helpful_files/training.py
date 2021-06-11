@@ -5,6 +5,7 @@ from PIL import Image
 from torch.utils.data import Sampler
 import os
 
+
 def load_transform(path, boxdict, transform, flipping, masking):
     # Load the image
     flip = (torch.rand(1)>.5).item()

@@ -42,10 +42,10 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--augflip",
-    action="store_true",
-    default=True,
-    help="Horizontal flip data augmentation (true in NB)"
+    "--augmentation",
+    default='flip',
+    choices=['no', 'flip', 'all'],
+    help="Which augmentation use during training and fine-tuning"
 )
 
 parser.add_argument(
@@ -125,8 +125,6 @@ cudnn.benchmark = True
 lr = args.lr
 ft_lr = args.ft_lr
 # Data loading
-augmentation_flipping = args.augflip  # Horizontal flip data augmentation
-include_masks = False
 
 experiment_path.mkdir(exist_ok=True, parents=True)
 dumpable_args = {
@@ -144,19 +142,40 @@ with (experiment_path / "rerun.sh").open("w") as f:
     print("#", datetime.now(), file=f)
     print("python", *sys.argv, file=f)
 
-transforms_list = [
+test_transforms = [
     transforms.ToTensor(),
-    transforms.RandomHorizontalFlip(),
     transforms.Normalize(mean=[0.4905, 0.4961, 0.4330], std=[0.1737, 0.1713, 0.1779])
 ]
 
+if args.augmentation == 'flip':
+    transforms_list = [
+        transforms.ToTensor(),
+        transforms.RandomHorizontalFlip(),
+        transforms.Normalize(mean=[0.4905, 0.4961, 0.4330], std=[0.1737, 0.1713, 0.1779])
+    ]
+elif args.augmentation == 'all':
+    transforms_list = [
+        transforms.ToTensor(),
+        transforms.RandomRotation(180),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomVerticalFlip(),
+        transforms.RandomCrop(42, pad_if_needed=True),
+        transforms.RandomErasing(),
+        transforms.Normalize(mean=[0.4905, 0.4961, 0.4330], std=[0.1737, 0.1713, 0.1779])
+    ]
+else:
+    transforms_list = test_transforms
+
 if args.model == 'vit':  # Need to resize images to match size of embeddings
     transforms_list.append(transforms.Resize(384))
+    test_transforms.append(transforms.Resize(384))
+
 transforms_list = transforms.Compose(transforms_list)
+test_transforms = transforms.Compose(test_transforms)
 
 train_dataset = datasets.ImageFolder(
     join(datapath, 'train'),
-    loader=lambda x: load_transform(x, None, transforms_list, augmentation_flipping, include_masks)
+    loader=lambda x: load_transform(x, None, transforms_list, False, False)
 )
 train_loader = torch.utils.data.DataLoader(
     train_dataset,
@@ -172,7 +191,7 @@ refr_dataset = datasets.ImageFolder(
 )
 query_dataset = datasets.ImageFolder(
     join(datapath, 'query'),
-    loader=lambda x: load_transform(x, None, transforms_list, False, False)
+    loader=lambda x: load_transform(x, None, test_transforms, False, False)
 )
 refr_loader = torch.utils.data.DataLoader(
     refr_dataset,
